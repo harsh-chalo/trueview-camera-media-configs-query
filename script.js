@@ -1,5 +1,5 @@
 require('./CameraSDK/play');
-//
+
 const Player = global.VideoPlayer;
 
 const devices = require('./deviceList').DEVICES;
