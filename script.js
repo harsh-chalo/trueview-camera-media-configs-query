@@ -2,7 +2,9 @@ require('./CameraSDK/play');
 
 const Player = global.VideoPlayer;
 
-const devices = require('./deviceList').DEVICES;
+const devices = require('./amanDeviceList').DEVICES;
+// const devices = require('./setDeviceList').DEVICES;
+
 let startTime1,
   endTime1,
   chunkDuration,
@@ -13,14 +15,8 @@ let overTime;
 const fs = require('fs');
 
 let chunkCounter = 0;
-let devicesFpsReceived = [];
-let fpsData = [];
-let resolutionData = [];
-let bitRateData = [];
-let bitRateTypeData = [];
-let encTypeData = [];
-let totalStorageData = [];
-let remainingStorageData = [];
+
+let startTimeOfVideo;
 
 Player.startDownloadingNext = () => {
   chunkCounter += 1;
@@ -97,11 +93,40 @@ Player.getBlobUrl = (
     } else {
       console.log('Temp video file saved successfully');
     }
-    // if (devices.length === 0) {
-    //   console.log('=====kill process');
-    //   process.exit(0);
-    // }
   });
+};
+
+const searchRecordAfterConnect = () => {
+  console.log('==========DEVICE CONNECTED');
+  let currentDate = new Date();
+
+  let today = new Date(currentDate);
+  // yesterday.setDate(yesterday.getDate() - 1);
+
+  let begintime = new Date(
+    today.getFullYear().toString() +
+      '-' +
+      (today.getMonth() + 1).toString() +
+      '-' +
+      (today.getDate() - 1).toString() +
+      ' 00:00:00'
+  );
+  let endtime = new Date(
+    today.getFullYear().toString() +
+      '-' +
+      (today.getMonth() + 1).toString() +
+      '-' +
+      (today.getDate() - 1).toString() +
+      ' 23:59:59'
+  );
+
+  begintime =
+    parseInt(begintime.getTime() / 1000) - new Date().getTimezoneOffset() * 60;
+  endtime =
+    parseInt(endtime.getTime() / 1000) - new Date().getTimezoneOffset() * 60;
+  console.log('=======date of sd card data', { begintime, endtime });
+
+  Player.SreachRecord(devices[0], '', 0, begintime, endtime, 15);
 };
 
 const connectDeviceAndDownload = () => {
@@ -129,37 +154,7 @@ const connectDeviceAndDownload = () => {
     null
   );
   Player.isDeviceConnected = () => {
-    console.log('==========DEVICE CONNECTED');
-    let currentDate = new Date();
-
-    let today = new Date(currentDate);
-    // yesterday.setDate(yesterday.getDate() - 1);
-
-    let begintime = new Date(
-      today.getFullYear().toString() +
-        '-' +
-        (today.getMonth() + 1).toString() +
-        '-' +
-        today.getDate().toString() +
-        ' 00:00:00'
-    );
-    let endtime = new Date(
-      today.getFullYear().toString() +
-        '-' +
-        (today.getMonth() + 1).toString() +
-        '-' +
-        today.getDate().toString() +
-        ' 23:59:59'
-    );
-
-    begintime =
-      parseInt(begintime.getTime() / 1000) -
-      new Date().getTimezoneOffset() * 60;
-    endtime =
-      parseInt(endtime.getTime() / 1000) - new Date().getTimezoneOffset() * 60;
-    console.log('=======date of sd card data', { begintime, endtime });
-
-    Player.SreachRecord(devices[0], '', 0, begintime, endtime, 15);
+    searchRecordAfterConnect();
   };
   Player.getRecordList = (recordings) => {
     console.log('=======1st recording download', recordings[0]);
@@ -175,24 +170,23 @@ Player.checkMediaConfigsOfNextDevice = (
   bitRateType,
   encType,
   totalStorage,
-  remainingStorage
+  remainingStorage,
+  offset,
+  preIssue // 3rd param for any preIssue - offline/auth/no_recordings
 ) => {
   if (deviceId && fps) {
     console.log('=====device media configs', {
       deviceId,
       fps,
-      // resolution,
-      // totalStorage,
-      // remainingStorage,
+      resolution,
+      bitRate,
+      bitRateType,
+      encType,
+      totalStorage,
+      remainingStorage,
+      offset,
+      preIssue,
     });
-    devicesFpsReceived.push(deviceId);
-    fpsData.push(fps);
-    resolutionData.push(resolution);
-    bitRateData.push(bitRate);
-    bitRateTypeData.push(bitRateType);
-    encTypeData.push(encType);
-    totalStorageData.push(totalStorage);
-    remainingStorageData.push(remainingStorage);
 
     console.log('====== Disconnecting Device...');
     Player.DisConnectDevice(devices[0]);
@@ -202,11 +196,57 @@ Player.checkMediaConfigsOfNextDevice = (
     let mediaConfigsFilePath = __dirname + `/mediaConfig/file`;
 
     mediaConfigsFilePath += '.csv';
+    let cameraInstallationQCPassed = true;
+    let errors = '';
+    // pass - no error
+    // pre issues - offline, auth, no rec | config issues - fps, res, codec, timezone | no frame
+    if (
+      fps === '-' ||
+      resolution === '-' ||
+      encType === '-' ||
+      offset === '-'
+    ) {
+      errors += 'No frame received,';
+      cameraInstallationQCPassed = false;
+    } else {
+      if (fps !== 5) {
+        errors += 'fps,';
+        cameraInstallationQCPassed = false;
+      }
+      if (resolution !== '640x360') {
+        errors += 'resolution,';
+        cameraInstallationQCPassed = false;
+      }
+      if (encType !== 'H264') {
+        errors += 'encoding,';
+        cameraInstallationQCPassed = false;
+      }
+      if (offset < 19700 || offset > 19900) {
+        errors += 'timezone wrong';
+        cameraInstallationQCPassed = false;
+      }
+    }
 
-    const textContent =
-      `${devicesFpsReceived}\n${fpsData}\n${resolutionData}\n${bitRateData}\n${bitRateTypeData}\n${encTypeData}\n${totalStorageData}\n${remainingStorageData}`.toString();
+    if (preIssue) {
+      cameraInstallationQCPassed = false;
+    }
 
-    fs.writeFile(mediaConfigsFilePath, textContent, (err) => {
+    const arr = [
+      deviceId,
+      fps,
+      resolution,
+      encType,
+      totalStorage,
+      remainingStorage,
+      offset,
+      cameraInstallationQCPassed ? 'Pass' : 'Fail',
+      cameraInstallationQCPassed ? [] : preIssue ? [preIssue] : [errors],
+      '\n',
+    ];
+
+    const textContent = arr.join(',').toString();
+
+    fs.appendFile(mediaConfigsFilePath, textContent, (err) => {
       if (err) console.error('Error writing the FrameData file:', err);
       else console.log('FrameData file saved successfully.');
     });
@@ -218,12 +258,65 @@ Player.checkMediaConfigsOfNextDevice = (
   }
 };
 
+const startPlaybackToGetConfigs = () => {
+  Player.StartPlayBack(
+    devices[0],
+    '',
+    0,
+    startTimeOfVideo,
+    startTimeOfVideo + 300,
+    18,
+    0,
+    false
+  );
+  overTime = startTimeOfVideo + 300;
+  // global.overTime = overTime;
+};
+
 const getMediaConfigsOfDevices = () => {
   if (devices.length === 0) {
     setTimeout(() => {
-      console.log('DEVICES EMPTY kill process after 5s');
-      process.exit(0);
-    }, 5000);
+      const csvFile = __dirname + '/mediaConfig/file.csv';
+      console.log('DEVICES EMPTY kill process after 5s', csvFile);
+      fs.readFile(csvFile, 'utf8', (err, data) => {
+        if (err) {
+          console.error(err);
+          return;
+        }
+        const eachCamData = data.trim().split('\n');
+        let json = {};
+        eachCamData.forEach((ele) => {
+          const camId = ele.split(',')[0];
+          let configIssues = [];
+          if (ele.split(',')[8]) {
+            let trimCommas = ele.replace(/,+$/, '');
+            const newArr = trimCommas.split(',');
+            for (let i = 8; i < newArr.length; i++) {
+              configIssues.push(newArr[i]);
+            }
+          }
+          json[camId] = {
+            fps: ele.split(',')[1],
+            resolution: ele.split(',')[2],
+            codec: ele.split(',')[3],
+            totalSdSize: ele.split(',')[4],
+            remainingSdSize: ele.split(',')[5],
+            timezone: ele.split(',')[6],
+            qc_status: ele.split(',')[7],
+            // errors: [ele.split(',')[8]],
+            errors: configIssues,
+          };
+        });
+
+        let mediaConfigsFilePath = __dirname + `/mediaConfig/qcData`;
+        mediaConfigsFilePath += '.json';
+        fs.writeFile(mediaConfigsFilePath, JSON.stringify(json), (err) => {
+          if (err) console.error('Error writing the json file:', err);
+          else console.log('json file saved successfully.');
+          process.exit(0);
+        });
+      });
+    }, 10000);
     return;
   }
 
@@ -241,9 +334,31 @@ const getMediaConfigsOfDevices = () => {
     1,
     'wss',
     null,
-    true
+    true //isGetDeviceMediaConfigsViaPlayback
   );
-  Player.isDeviceConnected = () => {};
+  Player.isDeviceConnected = () => {
+    searchRecordAfterConnect();
+  };
+  Player.getRecordList = (recordings) => {
+    console.log('=======1st recording', recordings.length);
+    if (recordings.length > 0) {
+      startTimeOfVideo = recordings[0].file_begintime;
+      startPlaybackToGetConfigs();
+    } else {
+      Player.checkMediaConfigsOfNextDevice(
+        devices[0],
+        '-',
+        '-',
+        '-',
+        '-',
+        '-',
+        '-',
+        '-',
+        '-',
+        'No recordings'
+      );
+    }
+  };
 };
 
 module.exports.analyzeDownload = function (
@@ -274,10 +389,40 @@ module.exports.analyzeDownload = function (
   }
 };
 
-module.exports.analyzeMediaConfigs = function () {
+module.exports.getMediaConfigs = function () {
+  // Given IST date and time
+  // const today = new Date();
+  // const year = today.getFullYear();
+  // const month = String(today.getMonth() + 1).padStart(2, '0');
+  // const day = String(today.getDate()).padStart(2, '0');
+
+  // let hr = today.getHours();
+  // hr -= 4;
+  // hr = String(hr).padStart(2, '0');
+
+  // const newDateTime = new Date(`${year}-${month}-${day}T${hr}:00:00`);
+
+  // const epochTime = newDateTime.getTime() + 19800000; // Epoch time in milliseconds
+
+  // startTimeOfVideo = Math.floor(epochTime / 1000);
+  // console.log('======start time', Math.floor(epochTime / 1000));
   try {
-    console.log('analyzeMediaConfigs');
-    getMediaConfigsOfDevices();
+    console.log('getMediaConfigs');
+
+    let mediaConfigsFilePath = __dirname + `/mediaConfig/file.csv`;
+    if (fs.existsSync(mediaConfigsFilePath)) {
+      console.log('/tmp/myfile exists!');
+      fs.unlink(mediaConfigsFilePath, (err) => {
+        if (err) {
+          console.log('=====err', err);
+          return;
+        }
+        getMediaConfigsOfDevices();
+      });
+    } else {
+      console.log('/tmp/myfile does not exist!');
+      getMediaConfigsOfDevices();
+    }
   } catch (error) {
     console.log('Error in script:', error);
   }
