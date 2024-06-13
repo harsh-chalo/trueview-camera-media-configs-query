@@ -24534,6 +24534,23 @@ const stringChangeMd5 = require('./md5.js');
                   resolve(res.data);
                 });
             });
+            // return new Promise((resolve, reject) => {
+            //   fetch('https://openapi.dvr163.com/message/nonce?method=get', {
+            //     headers: {
+            //       'Content-Type': 'application/json',
+            //       Accept: 'application/json',
+            //     },
+            //   })
+            //     .then((res) => {
+            //       // console.log('=======>>>>>', res);
+            //       return res.json();
+            //     })
+            //     .then((data) => {
+            //       // console.log('=======data1111', data);
+            //       resolve(data);
+            //       // return data;
+            //     });
+            // });
           }
 
           console.log('====3333');
@@ -24603,6 +24620,11 @@ const stringChangeMd5 = require('./md5.js');
                 resolve(res.data);
               });
             });
+            // return new Promise((resolve, reject) => {
+            //   fetch(url)
+            //     .then((res) => res.json())
+            //     .then((data) => resolve(data));
+            // });
           }
           // }
           // const lData = await callL();
