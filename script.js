@@ -2,7 +2,7 @@ require('./CameraSDK/play');
 
 const Player = global.VideoPlayer;
 
-const devices = require('./amanDeviceList').DEVICES;
+const devices = require('./deviceList').DEVICES;
 // const devices = require('./setDeviceList').DEVICES;
 
 let startTime1,
@@ -17,6 +17,8 @@ const fs = require('fs');
 let chunkCounter = 0;
 
 let startTimeOfVideo;
+let searchRecordDay = 0;
+let devicesForSetConfig = [];
 
 Player.startDownloadingNext = () => {
   chunkCounter += 1;
@@ -108,7 +110,7 @@ const searchRecordAfterConnect = () => {
       '-' +
       (today.getMonth() + 1).toString() +
       '-' +
-      (today.getDate() - 1).toString() +
+      (today.getDate() - searchRecordDay).toString() +
       ' 00:00:00'
   );
   let endtime = new Date(
@@ -116,7 +118,7 @@ const searchRecordAfterConnect = () => {
       '-' +
       (today.getMonth() + 1).toString() +
       '-' +
-      (today.getDate() - 1).toString() +
+      (today.getDate() - searchRecordDay).toString() +
       ' 23:59:59'
   );
 
@@ -193,9 +195,8 @@ Player.checkMediaConfigsOfNextDevice = (
     devices.splice(0, 1);
     getMediaConfigsOfDevices();
 
-    let mediaConfigsFilePath = __dirname + `/mediaConfig/file`;
+    let mediaConfigsFilePath = __dirname + `/mediaConfig/getConfigData.csv`;
 
-    mediaConfigsFilePath += '.csv';
     let cameraInstallationQCPassed = true;
     let errors = '';
     // pass - no error
@@ -276,7 +277,7 @@ const startPlaybackToGetConfigs = () => {
 const getMediaConfigsOfDevices = () => {
   if (devices.length === 0) {
     setTimeout(() => {
-      const csvFile = __dirname + '/mediaConfig/file.csv';
+      const csvFile = __dirname + '/mediaConfig/getConfigData.csv';
       console.log('DEVICES EMPTY kill process after 5s', csvFile);
       fs.readFile(csvFile, 'utf8', (err, data) => {
         if (err) {
@@ -342,7 +343,10 @@ const getMediaConfigsOfDevices = () => {
   Player.getRecordList = (recordings) => {
     console.log('=======1st recording', recordings.length);
     if (recordings.length > 0) {
-      startTimeOfVideo = recordings[0].file_begintime;
+      if (searchRecordDay === 0) {
+        // fetch current day latest recording
+        startTimeOfVideo = recordings[recordings.length - 1].file_begintime;
+      } else startTimeOfVideo = recordings[0].file_begintime;
       startPlaybackToGetConfigs();
     } else {
       Player.checkMediaConfigsOfNextDevice(
@@ -361,35 +365,95 @@ const getMediaConfigsOfDevices = () => {
   };
 };
 
-module.exports.analyzeDownload = function (
-  start_time,
-  end_time,
-  chunk_duration
-) {
-  console.log('analyzeDownload');
-  try {
-    startTime1 = start_time; // epoch 1716375600
-    endTime1 = end_time; // epoch 1716379200
-    chunkDuration = chunk_duration; // mins
-    numberOfChunks = (endTime1 - startTime1) / (chunkDuration * 60); // duration (min)/chunkDuration
-
-    for (let i = 0; i < numberOfChunks; i++) {
-      let timing = {
-        chunk_id: i + 1,
-        start_ts: startTime1,
-        end_ts: startTime1 + chunkDuration * 60,
-      };
-      startTime1 = startTime1 + chunkDuration * 60;
-      chunksToDownload.push(timing);
-    }
-    console.log('===== chunksToDownload', chunksToDownload);
-    connectDeviceAndDownload();
-  } catch (error) {
-    console.log('Error in script:', error);
+const setMediaConfigsOfDevices = () => {
+  if (devices.length === 0) {
+    setTimeout(() => {
+      console.log('DEVICES EMPTY kill process after 5s');
+      process.exit(0);
+    }, 5000);
+    return;
   }
+
+  console.log('=====devices', devices);
+
+  Player.ConnectDevice(
+    devices[0],
+    '',
+    'admin',
+    '',
+    0,
+    80,
+    0,
+    0,
+    1,
+    'wss',
+    null
+  );
+
+  Player.isDeviceConnected = () => {};
+  Player.isConfigSetSuccessfully = () => {
+    console.log('========== Config set successfully for', devices[0]);
+    let mediaConfigsFilePath = __dirname + `/mediaConfig/setConfigData.csv`;
+    devicesForSetConfig.push(`${devices[0]}: success`);
+    fs.writeFile(
+      mediaConfigsFilePath,
+      devicesForSetConfig.join('\n'),
+      (err) => {
+        if (err) console.error('Error writing the log file:', err);
+        else console.log('Log file saved successfully.');
+      }
+    );
+    console.log('====== Disconnecting Device...');
+    Player.DisConnectDevice(devices[0]);
+    devices.splice(0, 1);
+    setMediaConfigsOfDevices();
+  };
+  Player.setConfigForNext = () => {
+    console.log('========== SKIP', devices[0]);
+    let mediaConfigsFilePath = __dirname + `/mediaConfig/setConfigData.csv`;
+    devicesForSetConfig.push(`${devices[0]}: fail`);
+    fs.writeFile(
+      mediaConfigsFilePath,
+      devicesForSetConfig.join('\n'),
+      (err) => {
+        if (err) console.error('Error writing the log file:', err);
+        else console.log('Log file saved successfully.');
+      }
+    );
+    devices.splice(0, 1);
+    setMediaConfigsOfDevices();
+  };
 };
 
-module.exports.getMediaConfigs = function () {
+// module.exports.analyzeDownload = function (
+//   start_time,
+//   end_time,
+//   chunk_duration
+// ) {
+//   console.log('analyzeDownload');
+//   try {
+//     startTime1 = start_time; // epoch 1716375600
+//     endTime1 = end_time; // epoch 1716379200
+//     chunkDuration = chunk_duration; // mins
+//     numberOfChunks = (endTime1 - startTime1) / (chunkDuration * 60); // duration (min)/chunkDuration
+
+//     for (let i = 0; i < numberOfChunks; i++) {
+//       let timing = {
+//         chunk_id: i + 1,
+//         start_ts: startTime1,
+//         end_ts: startTime1 + chunkDuration * 60,
+//       };
+//       startTime1 = startTime1 + chunkDuration * 60;
+//       chunksToDownload.push(timing);
+//     }
+//     console.log('===== chunksToDownload', chunksToDownload);
+//     connectDeviceAndDownload();
+//   } catch (error) {
+//     console.log('Error in script:', error);
+//   }
+// };
+
+module.exports.getMediaConfigs = function (day = 0) {
   // Given IST date and time
   // const today = new Date();
   // const year = today.getFullYear();
@@ -407,9 +471,10 @@ module.exports.getMediaConfigs = function () {
   // startTimeOfVideo = Math.floor(epochTime / 1000);
   // console.log('======start time', Math.floor(epochTime / 1000));
   try {
-    console.log('getMediaConfigs');
+    console.log('getMediaConfigs', day);
+    searchRecordDay = day;
 
-    let mediaConfigsFilePath = __dirname + `/mediaConfig/file.csv`;
+    let mediaConfigsFilePath = __dirname + `/mediaConfig/getConfigData.csv`;
     if (fs.existsSync(mediaConfigsFilePath)) {
       console.log('/tmp/myfile exists!');
       fs.unlink(mediaConfigsFilePath, (err) => {
@@ -423,6 +488,15 @@ module.exports.getMediaConfigs = function () {
       console.log('/tmp/myfile does not exist!');
       getMediaConfigsOfDevices();
     }
+  } catch (error) {
+    console.log('Error in script:', error);
+  }
+};
+
+module.exports.setMediaConfigs = function () {
+  try {
+    console.log('setMediaConfigs');
+    setMediaConfigsOfDevices();
   } catch (error) {
     console.log('Error in script:', error);
   }

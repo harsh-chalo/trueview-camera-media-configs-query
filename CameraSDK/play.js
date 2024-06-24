@@ -52,22 +52,33 @@ global.ConnectApi.onRemoteSetup = (remote_str) => {
     }
   }
 
-  const { TotalSpacesize: totalStorage, LeaveSpacesize: remainingStorage } =
-    config.IPCam.TfcardManager;
-  console.log('========configData', config.IPCam.TfcardManager);
-  clearInterval(interval2);
+  if (_isGetDeviceMediaConfigsViaPlayback) {
+    const { TotalSpacesize: totalStorage, LeaveSpacesize: remainingStorage } =
+      config.IPCam.TfcardManager;
+    console.log('========configData', config.IPCam);
+    interval2 && clearInterval(interval2);
 
-  Player.checkMediaConfigsOfNextDevice(
-    _deviceId,
-    cameraFps,
-    cameraResolution,
-    '-',
-    '-',
-    cameraEnc,
-    totalStorage,
-    remainingStorage,
-    offset
-  );
+    Player.checkMediaConfigsOfNextDevice(
+      _deviceId,
+      cameraFps,
+      cameraResolution,
+      '-',
+      '-',
+      cameraEnc,
+      totalStorage,
+      remainingStorage,
+      offset
+    );
+  } else {
+    console.log('Set config result', config.option);
+    if (config.option) {
+      if (config.option == 'success') {
+        Player.isConfigSetSuccessfully();
+      }
+    } else {
+      Player.setConfigForNext();
+    }
+  }
 
   return;
   if (config.IPCam) {
@@ -278,7 +289,7 @@ function getMediaConfigs() {
     );
     if (Math.floor(Date.now() / 1000 - configReceivedTimeElapsed) >= 15) {
       console.log('=====time up check another cam');
-      clearInterval(interval2);
+      interval2 && clearInterval(interval2);
       Player.checkMediaConfigsOfNextDevice(
         _deviceId,
         cameraFps,
@@ -309,6 +320,47 @@ function getMediaConfigs() {
       password: '',
     },
   };
+
+  sendRemoteConfig(config);
+}
+
+function setMediaConfigs() {
+  let config = {
+    Version: '1.0.0', // for fps
+    // Version: '1.3.0', // for enc
+    Method: 'set',
+    IPCam: {
+      // videoManager: {
+      //   streamId: 1,
+      //   encType: 'H.265',
+      //   flipEnabled: false,
+      //   mirrorEnabled: false,
+      // },
+      videoManagerV2: [
+        {
+          id: 0,
+          resolution: '1920x1080',
+          bitRateType: 'VBR',
+          bitRate: 512,
+          frameRate: 15,
+        },
+        {
+          id: 1,
+          resolution: '640x360',
+          bitRateType: 'CBR',
+          bitRate: 128,
+          frameRate: 5,
+        },
+      ],
+    },
+    Authorization: {
+      Verify: '',
+      username: 'admin',
+      password: '',
+    },
+  };
+
+  console.log('======setting config', JSON.stringify(config));
 
   sendRemoteConfig(config);
 }
@@ -576,11 +628,12 @@ global.ConnectApi.onrecvrecframe = function (
   if (!api_conn.streamlist[channel].firstFrame) {
     api_conn.streamlist[channel].firstFrame = true;
   }
-  console.log('====== frame fps of', _deviceId, fps, width, height, {
-    ts_ms,
-    offset: videoStartTime - Math.floor(ts_ms / 1000),
-  });
+
   if (frametype != 0) {
+    console.log('====== frame fps of', _deviceId, fps, width, height, {
+      ts_ms,
+      offset: videoStartTime - Math.floor(ts_ms / 1000),
+    });
     cameraFps = fps;
     cameraResolution = `${width}x${height}`;
     cameraEnc = enc;
@@ -687,9 +740,8 @@ global.ConnectApi.onconnect = function (api_conn, code) {
         code
     );
 
-    // if analyzing fps then dont execute
     if (_isGetDeviceMediaConfigsViaPlayback) {
-      // check fps via playback
+      // return get configs of device
       interval2 && clearInterval(interval2);
       Player.checkMediaConfigsOfNextDevice(
         _deviceId,
@@ -705,6 +757,8 @@ global.ConnectApi.onconnect = function (api_conn, code) {
       );
       return;
     }
+    // move to next for setting config
+    Player.setConfigForNext();
     // else if (!_isGetDeviceMediaConfigs) Player.startDownloadingNext();
   }
 };
@@ -719,6 +773,9 @@ global.ConnectApi.onloginresult = function (api_conn, result) {
   if (result == 0) {
     api_conn.logined = true;
     Player.isDeviceConnected();
+    if (!_isGetDeviceMediaConfigsViaPlayback) {
+      setMediaConfigs();
+    }
     console.log(api_conn.deviceid + '登录成功');
     for (let i = 0; i < api_conn.streamlist.length; i++) {
       if (api_conn.streamlist[i].winindex >= 0 && api_conn.connectType == 1) {
@@ -737,9 +794,9 @@ global.ConnectApi.onloginresult = function (api_conn, result) {
         '错误码：' +
         result
     );
-    // if analyzing fps then dont execute
+    // return get configs of device
     if (_isGetDeviceMediaConfigsViaPlayback) {
-      clearInterval(interval2);
+      interval2 && clearInterval(interval2);
       Player.checkMediaConfigsOfNextDevice(
         _deviceId,
         '-',
@@ -754,6 +811,8 @@ global.ConnectApi.onloginresult = function (api_conn, result) {
       );
       return;
     }
+    // move to next for setting config
+    Player.setConfigForNext();
     // if (!_isGetDeviceMediaConfigs) Player.startDownloadingNext();
   }
 };
@@ -1363,6 +1422,8 @@ Player.StartPlayBack = function (
   _deviceId = id;
   _chunkId = chunkId;
   const filetype = type ? 0xffff : 0x0f;
+  interval && clearInterval(interval);
+  interval2 && clearInterval(interval2);
   // playerList[winindex].playbackPause = false;
 
   interval = setInterval(() => {
