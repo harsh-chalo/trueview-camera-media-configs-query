@@ -3,107 +3,18 @@ require('./CameraSDK/play');
 const Player = global.VideoPlayer;
 
 const devices = require('./deviceList').DEVICES;
-// const devices = require('./setDeviceList').DEVICES;
 
-let startTime1,
-  endTime1,
-  chunkDuration,
-  numberOfChunks,
-  chunksToDownload = [];
-
-let overTime;
 const fs = require('fs');
-
-let chunkCounter = 0;
 
 let startTimeOfVideo;
 let searchRecordDay = 0;
 let devicesForSetConfig = [];
-
-Player.startDownloadingNext = () => {
-  chunkCounter += 1;
-  console.log('====== chunkCounter', chunkCounter);
-  if (chunkCounter <= chunksToDownload.length - 1) {
-    console.log('====== chunkCounter <= chunksToDownload.length - 1');
-    startPlaybackToDownload();
-  } else {
-    console.log('====== Disconnecting Device...');
-    Player.DisConnectDevice(devices[0]);
-    devices.splice(0, 1);
-    chunkCounter = 0;
-    connectDeviceAndDownload();
-  }
-};
-
-const startPlaybackToDownload = () => {
-  Player.StartPlayBack(
-    devices[0],
-    '',
-    0,
-    chunksToDownload[chunkCounter].start_ts,
-    chunksToDownload[chunkCounter].end_ts,
-    18,
-    0,
-    false,
-    chunksToDownload[chunkCounter].chunk_id
-  );
-  overTime = chunksToDownload[chunkCounter].end_ts;
-  global.overTime = overTime;
-};
-
-Player.getBlobUrl = (
-  deviceId,
-  combinedVideo,
-  begintime,
-  endTime,
-  chunkId,
-  frameCount,
-  frameTimestamps,
-  deviceFpsWhileDownloading
-) => {
-  console.log('======received Uint8Array', {
-    deviceId,
-    chunkId,
-    combinedVideo,
-    begintime,
-    endTime,
-    frameCount,
-    deviceFpsWhileDownloading,
-  });
-
-  const data = combinedVideo;
-
-  let tempVideofilePath = __dirname + `/file_${deviceId}-${chunkId}`;
-  let frameDataFilePath = __dirname + `/frameData/file_${deviceId}-${chunkId}`;
-
-  tempVideofilePath += '.mp4';
-  frameDataFilePath += '.txt';
-  const _frameTimestamps = frameTimestamps.join('\n');
-  const fps = deviceFpsWhileDownloading;
-
-  const textContent =
-    `${deviceId}\n${frameCount}\n${fps}\n${begintime}\n${endTime}\n${_frameTimestamps}`.toString();
-
-  fs.writeFile(frameDataFilePath, textContent, (err) => {
-    if (err) console.error('Error writing the FrameData file:', err);
-    else console.log('FrameData file saved successfully.');
-  });
-
-  fs.writeFile(tempVideofilePath, data, (err) => {
-    if (err) {
-      console.error('Error writing the file:', err);
-    } else {
-      console.log('Temp video file saved successfully');
-    }
-  });
-};
 
 const searchRecordAfterConnect = () => {
   console.log('==========DEVICE CONNECTED');
   let currentDate = new Date();
 
   let today = new Date(currentDate);
-  // yesterday.setDate(yesterday.getDate() - 1);
 
   let begintime = new Date(
     today.getFullYear().toString() +
@@ -131,39 +42,6 @@ const searchRecordAfterConnect = () => {
   Player.SreachRecord(devices[0], '', 0, begintime, endtime, 15);
 };
 
-const connectDeviceAndDownload = () => {
-  if (devices.length === 0) {
-    setTimeout(() => {
-      console.log('DEVICES EMPTY kill process after 5s');
-      process.exit(0);
-    }, 5000);
-    return;
-  }
-
-  console.log('=====devices download', devices);
-
-  Player.ConnectDevice(
-    devices[0],
-    '',
-    'admin',
-    '',
-    0,
-    80,
-    0,
-    0,
-    1,
-    'wss',
-    null
-  );
-  Player.isDeviceConnected = () => {
-    searchRecordAfterConnect();
-  };
-  Player.getRecordList = (recordings) => {
-    console.log('=======1st recording download', recordings[0]);
-
-    startPlaybackToDownload();
-  };
-};
 Player.checkMediaConfigsOfNextDevice = (
   deviceId,
   fps,
@@ -173,7 +51,8 @@ Player.checkMediaConfigsOfNextDevice = (
   encType,
   totalStorage,
   remainingStorage,
-  offset,
+  timezone,
+  audioEnabled,
   preIssue // 3rd param for any preIssue - offline/auth/no_recordings
 ) => {
   if (deviceId && fps) {
@@ -186,7 +65,8 @@ Player.checkMediaConfigsOfNextDevice = (
       encType,
       totalStorage,
       remainingStorage,
-      offset,
+      timezone,
+      audioEnabled,
       preIssue,
     });
 
@@ -200,12 +80,12 @@ Player.checkMediaConfigsOfNextDevice = (
     let cameraInstallationQCPassed = true;
     let errors = '';
     // pass - no error
-    // pre issues - offline, auth, no rec | config issues - fps, res, codec, timezone | no frame
+    // pre issues - offline, auth, no rec | config issues - fps, res, codec, timezone, audioEnabled | no frame
     if (
       fps === '-' ||
       resolution === '-' ||
       encType === '-' ||
-      offset === '-'
+      timezone === '-'
     ) {
       errors += 'No frame received,';
       cameraInstallationQCPassed = false;
@@ -218,12 +98,16 @@ Player.checkMediaConfigsOfNextDevice = (
         errors += 'resolution,';
         cameraInstallationQCPassed = false;
       }
-      if (encType !== 'H264') {
+      if (encType !== 'H264' && encType !== 'H265') {
         errors += 'encoding,';
         cameraInstallationQCPassed = false;
       }
-      if (offset < 19700 || offset > 19900) {
+      if (timezone < 19700 || timezone > 19900) {
         errors += 'timezone wrong';
+        cameraInstallationQCPassed = false;
+      }
+      if (audioEnabled) {
+        errors += 'audio enabled';
         cameraInstallationQCPassed = false;
       }
     }
@@ -239,7 +123,8 @@ Player.checkMediaConfigsOfNextDevice = (
       encType,
       totalStorage,
       remainingStorage,
-      offset,
+      timezone,
+      audioEnabled,
       cameraInstallationQCPassed ? 'Pass' : 'Fail',
       cameraInstallationQCPassed ? [] : preIssue ? [preIssue] : [errors],
       '\n',
@@ -248,8 +133,8 @@ Player.checkMediaConfigsOfNextDevice = (
     const textContent = arr.join(',').toString();
 
     fs.appendFile(mediaConfigsFilePath, textContent, (err) => {
-      if (err) console.error('Error writing the FrameData file:', err);
-      else console.log('FrameData file saved successfully.');
+      if (err) console.error('Error writing the csv file:', err);
+      else console.log('getConfigData file saved successfully.');
     });
   } else {
     console.log('====== Disconnecting Device...');
@@ -270,8 +155,6 @@ const startPlaybackToGetConfigs = () => {
     0,
     false
   );
-  overTime = startTimeOfVideo + 300;
-  // global.overTime = overTime;
 };
 
 const getMediaConfigsOfDevices = () => {
@@ -289,10 +172,11 @@ const getMediaConfigsOfDevices = () => {
         eachCamData.forEach((ele) => {
           const camId = ele.split(',')[0];
           let configIssues = [];
-          if (ele.split(',')[8]) {
+          console.log('check', ele);
+          if (ele.split(',')[9]) {
             let trimCommas = ele.replace(/,+$/, '');
             const newArr = trimCommas.split(',');
-            for (let i = 8; i < newArr.length; i++) {
+            for (let i = 9; i < newArr.length; i++) {
               configIssues.push(newArr[i]);
             }
           }
@@ -303,8 +187,8 @@ const getMediaConfigsOfDevices = () => {
             totalSdSize: ele.split(',')[4],
             remainingSdSize: ele.split(',')[5],
             timezone: ele.split(',')[6],
-            qc_status: ele.split(',')[7],
-            // errors: [ele.split(',')[8]],
+            audioEnabled: ele.split(',')[7],
+            qc_status: ele.split(',')[8],
             errors: configIssues,
           };
         });
@@ -351,6 +235,7 @@ const getMediaConfigsOfDevices = () => {
     } else {
       Player.checkMediaConfigsOfNextDevice(
         devices[0],
+        '-',
         '-',
         '-',
         '-',
@@ -408,7 +293,7 @@ const setMediaConfigsOfDevices = () => {
     devices.splice(0, 1);
     setMediaConfigsOfDevices();
   };
-  Player.setConfigForNext = () => {
+  Player.skipCurrentDeviceAndSetConfigForNext = () => {
     console.log('========== SKIP', devices[0]);
     let mediaConfigsFilePath = __dirname + `/mediaConfig/setConfigData.csv`;
     devicesForSetConfig.push(`${devices[0]}: fail`);
@@ -425,51 +310,7 @@ const setMediaConfigsOfDevices = () => {
   };
 };
 
-// module.exports.analyzeDownload = function (
-//   start_time,
-//   end_time,
-//   chunk_duration
-// ) {
-//   console.log('analyzeDownload');
-//   try {
-//     startTime1 = start_time; // epoch 1716375600
-//     endTime1 = end_time; // epoch 1716379200
-//     chunkDuration = chunk_duration; // mins
-//     numberOfChunks = (endTime1 - startTime1) / (chunkDuration * 60); // duration (min)/chunkDuration
-
-//     for (let i = 0; i < numberOfChunks; i++) {
-//       let timing = {
-//         chunk_id: i + 1,
-//         start_ts: startTime1,
-//         end_ts: startTime1 + chunkDuration * 60,
-//       };
-//       startTime1 = startTime1 + chunkDuration * 60;
-//       chunksToDownload.push(timing);
-//     }
-//     console.log('===== chunksToDownload', chunksToDownload);
-//     connectDeviceAndDownload();
-//   } catch (error) {
-//     console.log('Error in script:', error);
-//   }
-// };
-
 module.exports.getMediaConfigs = function (day = 0) {
-  // Given IST date and time
-  // const today = new Date();
-  // const year = today.getFullYear();
-  // const month = String(today.getMonth() + 1).padStart(2, '0');
-  // const day = String(today.getDate()).padStart(2, '0');
-
-  // let hr = today.getHours();
-  // hr -= 4;
-  // hr = String(hr).padStart(2, '0');
-
-  // const newDateTime = new Date(`${year}-${month}-${day}T${hr}:00:00`);
-
-  // const epochTime = newDateTime.getTime() + 19800000; // Epoch time in milliseconds
-
-  // startTimeOfVideo = Math.floor(epochTime / 1000);
-  // console.log('======start time', Math.floor(epochTime / 1000));
   try {
     console.log('getMediaConfigs', day);
     searchRecordDay = day;

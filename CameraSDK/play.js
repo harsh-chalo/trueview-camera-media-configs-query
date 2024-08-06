@@ -55,6 +55,7 @@ global.ConnectApi.onRemoteSetup = (remote_str) => {
   if (_isGetDeviceMediaConfigsViaPlayback) {
     const { TotalSpacesize: totalStorage, LeaveSpacesize: remainingStorage } =
       config.IPCam.TfcardManager;
+    const { AudioEnabled: audioEnabled } = config.IPCam.ModeSetting;
     console.log('========configData', config.IPCam);
     interval2 && clearInterval(interval2);
 
@@ -67,16 +68,18 @@ global.ConnectApi.onRemoteSetup = (remote_str) => {
       cameraEnc,
       totalStorage,
       remainingStorage,
-      offset
+      offset,
+      audioEnabled
     );
   } else {
     console.log('Set config result', config.option);
     if (config.option) {
       if (config.option == 'success') {
+        restartDeviceAfterSetConfig();
         Player.isConfigSetSuccessfully();
       }
     } else {
-      Player.setConfigForNext();
+      Player.skipCurrentDeviceAndSetConfigForNext();
     }
   }
 
@@ -299,19 +302,19 @@ function getMediaConfigs() {
         cameraEnc,
         '-',
         '-',
-        offset
+        offset,
+        '-'
       );
     }
   }, 10000);
-  // videoManagerV2
-  // TfcardManager
+
+  // get sd card status and audio status
   console.log('****getMediaConfigs****');
   let config = {
     Version: '1.0.0',
     Method: 'get',
     IPCam: {
-      // remove this temporarily
-      // videoManagerV2: [],
+      ModeSetting: {},
       TfcardManager: {},
     },
     Authorization: {
@@ -326,23 +329,21 @@ function getMediaConfigs() {
 
 function setMediaConfigs() {
   let config = {
-    Version: '1.0.0', // for fps
-    // Version: '1.3.0', // for enc
+    Version: '1.0.0',
     Method: 'set',
     IPCam: {
-      // videoManager: {
-      //   streamId: 1,
-      //   encType: 'H.265',
-      //   flipEnabled: false,
-      //   mirrorEnabled: false,
-      // },
+      SystemOperation: {
+        TimeSync: {
+          TimeZone: 530,
+        },
+      },
       videoManagerV2: [
         {
           id: 0,
-          resolution: '1920x1080',
-          bitRateType: 'VBR',
-          bitRate: 512,
-          frameRate: 15,
+          resolution: '640x360',
+          bitRateType: 'CBR',
+          bitRate: 128,
+          frameRate: 5,
         },
         {
           id: 1,
@@ -352,6 +353,19 @@ function setMediaConfigs() {
           frameRate: 5,
         },
       ],
+      // main stream
+      videoManager: {
+        streamId: 1,
+        encType: 'H.265',
+        flipEnabled: false,
+        mirrorEnabled: false,
+      },
+      ModeSetting: {
+        AudioEnabled: false,
+      },
+      TfcardManager: {
+        Operation: 'format',
+      },
     },
     Authorization: {
       Verify: '',
@@ -364,6 +378,27 @@ function setMediaConfigs() {
 
   sendRemoteConfig(config);
 }
+function restartDeviceAfterSetConfig() {
+  let config = {
+    Version: '1.3.0',
+    Method: 'set',
+    IPCam: {
+      SystemOperation: {
+        Reboot: true,
+      },
+    },
+    Authorization: {
+      Verify: '',
+      username: 'admin',
+      password: '',
+    },
+  };
+
+  console.log('======setting config', JSON.stringify(config));
+
+  sendRemoteConfig(config);
+}
+
 /**
  * 根据设备ID获取设备连接状态
  * @method GetSessionById
@@ -505,16 +540,6 @@ async function downloadVideo(deviceId, begintime, endTime, chunkId) {
   // Create a Blob from the combined Uint8Array data
   // const combinedVideo = new Blob([combinedData], { type: 'blob' });
   // const url = URL.createObjectURL(combinedVideo);
-  Player.getBlobUrl(
-    deviceId,
-    combinedData,
-    begintime,
-    endTime,
-    chunkId,
-    frameCount,
-    frameTimestamps,
-    deviceFpsWhileDownloading
-  );
   console.log('===clear chunk');
   chunks = [];
 }
@@ -545,7 +570,6 @@ var doOnceCode = (function (ts_ms, overTime, uid, channel) {
 
         clearInterval(interval);
         downloadVideo(_deviceId, videoStartTime, videoEndTime, _chunkId);
-        Player.startDownloadingNext();
 
         // var s = new Date(
         //   global.beginTime + new Date().getTimezoneOffset() * 60 * 1000
@@ -753,13 +777,13 @@ global.ConnectApi.onconnect = function (api_conn, code) {
         '-',
         '-',
         '-',
+        '-',
         code === -13 ? 'Offline' : `Connect failed: ${code}`
       );
       return;
     }
     // move to next for setting config
-    Player.setConfigForNext();
-    // else if (!_isGetDeviceMediaConfigs) Player.startDownloadingNext();
+    Player.skipCurrentDeviceAndSetConfigForNext();
   }
 };
 /**
@@ -807,13 +831,13 @@ global.ConnectApi.onloginresult = function (api_conn, result) {
         '-',
         '-',
         '-',
+        '-',
         'Auth issue'
       );
       return;
     }
     // move to next for setting config
-    Player.setConfigForNext();
-    // if (!_isGetDeviceMediaConfigs) Player.startDownloadingNext();
+    Player.skipCurrentDeviceAndSetConfigForNext();
   }
 };
 /**
@@ -1091,7 +1115,7 @@ Player.ConnectDevice = function (
   turnIp,
   turnPort
 ) {
-  console.log('Connect Device 1', devid);
+  console.log('Connect Device 1', devid, user, pwd);
   _isGetDeviceMediaConfigsViaPlayback = isGetDeviceMediaConfigsViaPlayback;
   _deviceId = devid;
   //ID连接
@@ -1443,7 +1467,6 @@ Player.StartPlayBack = function (
       Player.StopPlayBack(id, '', channel);
       executed = true;
       downloadVideo(id, begintime, endtime, chunkId);
-      Player.startDownloadingNext();
     } else if (
       lastTimeWhenFrameReceived &&
       Date.now() / 1000 - lastTimeWhenFrameReceived >= 40 &&
@@ -1458,7 +1481,6 @@ Player.StartPlayBack = function (
         getMediaConfigs();
       } else {
         downloadVideo(id, begintime, endtime, chunkId);
-        Player.startDownloadingNext();
       }
     }
   }, 20000);
