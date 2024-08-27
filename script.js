@@ -103,7 +103,7 @@ Player.checkMediaConfigsOfNextDevice = (
         cameraInstallationQCPassed = false;
       }
       if (timezone < 19700 || timezone > 19900) {
-        errors += 'timezone wrong';
+        errors += 'timezone wrong,';
         cameraInstallationQCPassed = false;
       }
       if (audioEnabled) {
@@ -317,7 +317,7 @@ module.exports.getMediaConfigs = function (day = 0) {
 
     let mediaConfigsFilePath = __dirname + `/mediaConfig/getConfigData.csv`;
     if (fs.existsSync(mediaConfigsFilePath)) {
-      console.log('/tmp/myfile exists!');
+      console.log('file exists!');
       fs.unlink(mediaConfigsFilePath, (err) => {
         if (err) {
           console.log('=====err', err);
@@ -326,7 +326,7 @@ module.exports.getMediaConfigs = function (day = 0) {
         getMediaConfigsOfDevices();
       });
     } else {
-      console.log('/tmp/myfile does not exist!');
+      console.log('file does not exist!');
       getMediaConfigsOfDevices();
     }
   } catch (error) {
